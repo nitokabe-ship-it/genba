@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="ja"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>水利台帳 オフライン</title>
+<style>
+:root{--bg:#f4f5f7;--card:#fff;--tx:#14161a;--mu:#666d75;--ln:#dde0e4;--ok:#18a957;--bz:#1677ff;--ng:#e5352b;--uk:#d99a00}
+@media(prefers-color-scheme:dark){:root{--bg:#111315;--card:#1c1f23;--tx:#f1f2f4;--mu:#9aa1a9;--ln:#31363c}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:16px/1.45 -apple-system,"Hiragino Sans",sans-serif;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
+header{position:sticky;top:0;z-index:5;background:var(--card);border-bottom:1px solid var(--ln);padding:8px 12px;display:flex;gap:8px;align-items:center}
+h1{font-size:17px;margin:0;flex:1}
+.mode{border:2px solid var(--ng);color:var(--ng);background:none;border-radius:8px;padding:6px 10px;font-weight:800}
+.mode.on{background:var(--ng);color:#fff}
+nav{display:flex;background:var(--card)}nav button{flex:1;padding:12px;border:0;border-bottom:3px solid transparent;background:none;color:var(--mu);font-weight:800;font-size:16px}
+nav button.on{color:var(--tx);border-color:var(--bz)}
+main{padding:10px;max-width:720px;margin:auto}
+.card{background:var(--card);border:1px solid var(--ln);border-radius:12px;padding:10px;margin-bottom:10px}
+input,textarea,button,select{font:inherit}
+input,textarea{width:100%;padding:10px;border:1px solid var(--ln);border-radius:8px;background:var(--bg);color:var(--tx)}
+textarea{min-height:200px;font-family:ui-monospace,monospace;font-size:13px}
+.row{display:flex;gap:6px;margin:6px 0}.row>*{flex:1}
+.btn{padding:12px;border:0;border-radius:10px;background:#111;color:#fff;font-weight:800}
+.btn.l{background:var(--ln);color:var(--tx)}
+canvas{width:100%;aspect-ratio:1;background:var(--bg);border-radius:10px;display:block}
+.it{display:flex;gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid var(--ln)}
+.no{width:28px;height:28px;border-radius:50%;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:900;flex:none}
+.mn{flex:1;min-width:0}.mn small{color:var(--mu);display:block}
+.hose{font-weight:900;font-size:20px;text-align:right;white-space:nowrap}
+.st{display:grid;grid-template-columns:repeat(4,1fr);gap:5px;margin-top:6px}
+.st button{padding:12px 2px;border:2px solid var(--ln);border-radius:9px;background:none;color:var(--tx);font-weight:800}
+.st button.on{color:#fff;border-color:transparent}
+.hint{color:var(--mu);font-size:12px}.hid{display:none}
+#pa{display:none}
+@media print{body>*{display:none!important}#pa{display:block!important;color:#000;background:#fff}#pa table{width:100%;border-collapse:collapse;font-size:12px}#pa td,#pa th{border:1px solid #000;padding:4px}}
+</style></head><body>
+<header><h1>水利台帳 <span class="hint">オフライン</span></h1><button class="mode" id="mode" onclick="setMode()">本番</button></header>
+<nav><button id="t0" class="on" onclick="tab(0)">現場</button><button id="t1" onclick="tab(1)">台帳</button><button id="t2" onclick="tab(2)">記録</button></nav>
+<main>
+<section id="p0">
+ <div class="card">
+  <div class="hint">火点の緯度,経度(Googleマップで長押し→数値をコピー)。GPSも使えます(通信不要)。</div>
+  <div class="row"><input id="fire" placeholder="35.5572,139.7330" inputmode="decimal"><button class="btn" style="flex:none" onclick="setFire()">設定</button></div>
+  <div class="row"><button class="btn l" onclick="gps()">📍 現在地を火点に</button><button class="btn l" onclick="clearFire()">火点クリア</button></div>
+  <div class="row"><label class="hint" style="flex:2">ホース迂回係数(直線→実延長の目安)<input id="k" type="number" step="0.1" value="1.3" oninput="draw()"></label><label class="hint">ホース長(m)<input id="hl" type="number" value="20" oninput="draw()"></label></div>
+ </div>
+ <div class="card"><canvas id="cv" width="700" height="700"></canvas><div class="hint">中心=火点 ／ 円=消火栓 ／ ★=防火水槽 ／ 緑=使用可 青=署使用 赤=困難 黄=未確認 ／ 上が北</div></div>
+ <div class="card"><b>近い順(<span id="cnt">0</span>件)</b> <label class="hint"><input type="checkbox" id="onlyok" onchange="draw()" style="width:auto"> 困難を除く</label><div id="list"></div>
+  <div class="hint">※直線距離×係数の概算です。道路・障害物は考慮しません。実際の敷設は現場の状況を優先してください。</div></div>
+</section>
+<section id="p1" class="hid">
+ <div class="card"><b>台帳(CSV: 種別,名称,緯度,経度)</b>
+  <div class="hint">種別は「消火栓」か「防火水槽」。表計算からそのまま貼り付けできます。※初期データはサンプルです。実データに置き換えてください。</div>
+  <textarea id="csv"></textarea>
+  <div class="row"><button class="btn" onclick="saveCsv()">保存</button><button class="btn l" onclick="copyText($('csv').value)">コピー</button></div></div>
+ <div class="card"><b>バックアップ・共有(通信不要)</b>
+  <div class="row"><button class="btn l" onclick="exportJson()">書き出し</button><button class="btn l" onclick="$('imp').click()">読み込み</button></div>
+  <input type="file" id="imp" class="hid" accept=".json" onchange="importJson(this)">
+  <button class="btn" style="width:100%" onclick="window.print()">🖨 紙に印刷(バックアップ用)</button>
+  <div class="hint">iPhoneは一定期間開かないと保存データが消えることがあります。定期的に書き出してください。</div></div>
+</section>
+<section id="p2" class="hid">
+ <div class="card"><b>操作ログ <span id="lm" class="hint"></span></b><div id="log"></div>
+ <div class="row"><button class="btn l" onclick="copyText(logText())">コピー</button><button class="btn l" onclick="clearLog()">ログ消去</button></div></div>
+</section>
+</main>
+<div id="pa"></div>
+<script>
+const $=id=>document.getElementById(id);
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const ST=[['未確認','var(--uk)'],['使用可','var(--ok)'],['署使用','var(--bz)'],['困難','var(--ng)']];
+const SAMPLE='消火栓,サンプルA,35.5575,139.7335\n消火栓,サンプルB,35.5568,139.7322\n防火水槽,サンプルC,35.5580,139.7328\n消火栓,サンプルD,35.5560,139.7345\n防火水槽,サンプルE,35.5590,139.7310';
+let S={mode:'real',fire:null,ledger:[],state:{},log:[],sel:null};
+const sk=()=>'sr_state_'+S.mode;
+function ld(k,d){try{const v=localStorage.getItem(k);return v?JSON.parse(v):d}catch(e){return d}}
+function sv(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){alert('保存できません(容量/プライベートモード)')}}
+function parse(t){return t.split('\n').map(l=>l.trim()).filter(Boolean).map((l,i)=>{const p=l.split(/[,\t]/).map(x=>x.trim());return{id:'w'+i,type:p[0],name:p[1]||'',lat:+p[2],lng:+p[3]}}).filter(w=>isFinite(w.lat)&&isFinite(w.lng)&&Math.abs(w.lat)<=90&&Math.abs(w.lng)<=180)}
+function dist(a,b,c,d){const R=6371000,r=Math.PI/180,x=(d-b)*r*Math.cos((a+c)/2*r),y=(c-a)*r;return R*Math.hypot(x,y)}
+function init(){S.mode=ld('sr_mode','real');const csv=ld('sr_csv',SAMPLE);$('csv').value=csv;S.ledger=parse(csv);load();ui()}
+function load(){const d=ld(sk(),{});S.fire=d.fire||null;S.state=d.state||{};S.log=d.log||[];$('fire').value=S.fire?S.fire.lat+','+S.fire.lng:''}
+function persist(){sv(sk(),{fire:S.fire,state:S.state,log:S.log})}
+function ui(){const b=$('mode');b.textContent=S.mode==='drill'?'訓練中':'本番';b.classList.toggle('on',S.mode==='drill');$('lm').textContent='('+(S.mode==='drill'?'訓練':'本番')+'データ)';draw();renderLog()}
+function setMode(){if(!confirm(S.mode==='real'?'訓練モードに切り替えます。本番の記録とは分けて保存されます。':'本番モードに戻します。'))return;S.mode=S.mode==='real'?'drill':'real';sv('sr_mode',S.mode);load();ui()}
+function tab(n){[0,1,2].forEach(i=>{$('p'+i).classList.toggle('hid',i!==n);$('t'+i).classList.toggle('on',i===n)});if(n===0)draw()}
+function setFire(){const m=$('fire').value.replace(/[　\s]/g,'').split(',');const lat=+m[0],lng=+m[1];if(m.length<2||!isFinite(lat)||!isFinite(lng)||Math.abs(lat)>90||Math.abs(lng)>180){alert('「緯度,経度」の形式で入力してください');return}S.fire={lat,lng};addLog('火点設定 '+lat.toFixed(5)+','+lng.toFixed(5));persist();draw()}
+function clearFire(){S.fire=null;$('fire').value='';persist();draw()}
+function gps(){if(!navigator.geolocation){alert('位置情報が使えません');return}navigator.geolocation.getCurrentPosition(p=>{$('fire').value=p.coords.latitude.toFixed(6)+','+p.coords.longitude.toFixed(6);setFire()},e=>alert('現在地を取得できません'),{enableHighAccuracy:true,timeout:15000})}
+function rows(){if(!S.fire)return[];const k=+$('k').value||1.3,hl=+$('hl').value||20;let r=S.ledger.map(w=>{const d=dist(S.fire.lat,S.fire.lng,w.lat,w.lng);const s=(S.state[w.id]||{}).s||0;return{w,d,s,n:Math.ceil(d*k/hl)}}).sort((a,b)=>a.d-b.d);if($('onlyok').checked)r=r.filter(x=>x.s!==3);return r}
+function draw(){const r=rows(),L=$('list');$('cnt').textContent=r.length;const cv=$('cv'),g=cv.getContext('2d'),W=cv.width,c=W/2;g.clearRect(0,0,W,W);
+ const cs=getComputedStyle(document.body),tx=cs.color,mu=cs.getPropertyValue('--mu').trim();
+ if(!S.fire){L.innerHTML='<div class="hint" style="padding:10px 0">火点を設定すると、近い順に表示します。</div>';g.fillStyle=mu;g.font='28px sans-serif';g.textAlign='center';g.fillText('火点を設定してください',c,c);return}
+ const R=Math.max(150,Math.min(400,Math.ceil((r.slice(0,8).pop()||{d:150}).d/50)*50+30)),sc=(c-30)/R;
+ g.strokeStyle=mu;g.fillStyle=mu;g.font='22px sans-serif';g.textAlign='left';g.globalAlpha=.6;for(let m=50;m<=R;m+=50){g.beginPath();g.arc(c,c,m*sc,0,7);g.stroke();if(m%100===0)g.fillText(m+'m',c+4,c-m*sc-4)}g.globalAlpha=1;
+ g.fillStyle=tx;g.textAlign='center';g.fillText('N',c,24);g.font='40px sans-serif';g.fillText('🔥',c,c+14);
+ r.forEach((x,i)=>{const w=x.w,dx=(w.lng-S.fire.lng)*111320*Math.cos(S.fire.lat*Math.PI/180)*sc,dy=-(w.lat-S.fire.lat)*111320*sc,px=c+dx,py=c+dy;if(px<0||py<0||px>W||py>W)return;
+  g.fillStyle=ST[x.s][1].startsWith('var')?cs.getPropertyValue(ST[x.s][1].slice(4,-1)):ST[x.s][1];g.strokeStyle='#fff';g.lineWidth=4;g.beginPath();
+  if(w.type.includes('水槽')){for(let j=0;j<10;j++){const a=-Math.PI/2+j*Math.PI/5,q=j%2?9:20;g[j?'lineTo':'moveTo'](px+q*Math.cos(a),py+q*Math.sin(a))}g.closePath()}else g.arc(px,py,14,0,7);
+  g.stroke();g.fill();g.fillStyle='#fff';g.font='bold 18px sans-serif';g.textBaseline='middle';if(!w.type.includes('水槽'))g.fillText(i+1,px,py+1);else{g.fillStyle=tx;g.fillText(i+1,px+22,py-14)}g.textBaseline='alphabetic'});
+ L.innerHTML=r.map((x,i)=>{const s=x.s,sel=S.sel===x.w.id;return`<div class="it" style="${sel?'background:rgba(22,119,255,.08)':''}" onclick="S.sel='${x.w.id}';draw()"><div class="no" style="background:${ST[s][1]}">${i+1}</div><div class="mn"><b>${esc(x.w.type.includes('水槽')?'★ ':'● ')+esc(x.w.name||x.w.type)}</b><small>直線 ${Math.round(x.d)}m ／ ${ST[s][0]}</small></div><div class="hose">${x.n}本</div></div>${sel?`<div class="st">${ST.map((t,j)=>`<button class="${j===s?'on':''}" style="${j===s?'background:'+t[1]:''}" onclick="event.stopPropagation();setSt('${x.w.id}',${j})">${t[0]}</button>`).join('')}</div>`:''}`}).join('')||'<div class="hint">台帳が空です。</div>'}
+function setSt(id,j){const w=S.ledger.find(x=>x.id===id);if(!w)return;S.state[id]={s:j,t:Date.now()};addLog((w.name||w.type)+' → '+ST[j][0]);persist();draw()}
+function addLog(t){S.log.unshift({t:Date.now(),m:t});S.log=S.log.slice(0,500);persist();renderLog()}
+const tm=t=>new Date(t).toLocaleTimeString('ja-JP',{hour12:false});
+function renderLog(){$('log').innerHTML=S.log.map(l=>`<div class="it"><small class="hint" style="width:64px">${tm(l.t)}</small><div class="mn">${esc(l.m)}</div></div>`).join('')||'<div class="hint">まだ記録がありません。</div>'}
+function logText(){return (S.mode==='drill'?'【訓練】\n':'')+S.log.slice().reverse().map(l=>tm(l.t)+' '+l.m).join('\n')}
+function clearLog(){if(confirm('この記録を消去します(状態は残ります)'))S.log=[],persist(),renderLog()}
+function saveCsv(){const t=$('csv').value,w=parse(t);if(!w.length){alert('有効な行がありません(種別,名称,緯度,経度)');return}sv('sr_csv',t);S.ledger=w;alert(w.length+'件を保存しました');draw()}
+function copyText(t){(navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(()=>alert('コピーしました'),()=>{const a=document.createElement('textarea');a.value=t;document.body.appendChild(a);a.select();try{document.execCommand('copy');alert('コピーしました')}catch(e){alert('コピーできません')}a.remove()})}
+function exportJson(){const b=new Blob([JSON.stringify({v:1,csv:$('csv').value,mode:S.mode,data:{fire:S.fire,state:S.state,log:S.log}})],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='suiri_backup_'+new Date().toISOString().slice(0,10)+'.json';a.click()}
+function importJson(el){const f=el.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{const d=JSON.parse(r.result);if(!d.csv)throw 0;if(!confirm('現在の台帳と記録を上書きします。よろしいですか?'))return;sv('sr_csv',d.csv);$('csv').value=d.csv;S.ledger=parse(d.csv);sv('sr_state_'+(d.mode||'real'),d.data||{});S.mode=d.mode||'real';sv('sr_mode',S.mode);load();ui();alert('読み込みました')}catch(e){alert('読み込めないファイルです')}};r.readAsText(f);el.value=''}
+window.addEventListener('beforeprint',()=>{const r=rows().length?rows():S.ledger.map(w=>({w,d:0,s:0,n:0}));$('pa').innerHTML='<h2>水利一覧 '+(S.mode==='drill'?'【訓練】':'')+new Date().toLocaleString('ja-JP')+'</h2><table><tr><th>No</th><th>種別</th><th>名称</th><th>緯度,経度</th><th>直線(m)</th><th>ホース</th><th>状態</th></tr>'+r.map((x,i)=>`<tr><td>${i+1}</td><td>${esc(x.w.type)}</td><td>${esc(x.w.name)}</td><td>${x.w.lat},${x.w.lng}</td><td>${S.fire?Math.round(x.d):'-'}</td><td>${S.fire?x.n:'-'}</td><td>${ST[x.s][0]}</td></tr>`).join('')+'</table>'});
+addEventListener('resize',draw);matchMedia('(prefers-color-scheme:dark)').addEventListener('change',draw);
+init();
+</script></body></html>
